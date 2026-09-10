@@ -1,38 +1,216 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-  <base target="_top">
-  <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; }
-    #result { margin-top: 20px; font-size: 18px; font-weight: bold; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>端末貸出システム</title>
+<style>
+  body { font-family: sans-serif; text-align: center; padding: 16px; max-width: 480px; margin: 0 auto; }
+  h2 { font-size: 20px; }
+  .btn {
+    display: block; width: 100%; margin: 8px 0; padding: 16px;
+    font-size: 18px; border: 2px solid #333; border-radius: 8px;
+    background: #fff; cursor: pointer;
+  }
+  .btn:active { background: #eee; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .grid .btn { padding: 12px 0; font-size: 16px; margin: 0; }
+  #reader { width: 100%; margin: 0 auto; }
+  .hidden { display: none; }
+  #confirmName { font-size: 22px; font-weight: bold; margin: 20px 0; }
+  #status { margin-top: 16px; font-size: 16px; font-weight: bold; }
+  .error { color: #c00; }
+  .ok { color: #080; }
+  #backBtn { margin-top: 20px; background: #eee; }
+</style>
 </head>
 <body>
+
+<!-- GASのURL（本番用） -->
+<script>
+const GAS_URL = 'https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbw_6J2ojgmzwT1sv3JsEqb97cbpfssOOCLer-BWLOhuU9bj4OxluUsANTnL3wA27ysj/exec';
+</script>
+
+<h1>端末貸出システム</h1>
+
+<!-- STEP1: 学科選択 -->
+<div id="step1">
+  <h2>学科を選んでください</h2>
+  <div id="deptButtons"></div>
+</div>
+
+<!-- STEP2: 出席番号選択 -->
+<div id="step2" class="hidden">
+  <h2>出席番号を選んでください</h2>
+  <div id="numberButtons" class="grid"></div>
+</div>
+
+<!-- STEP3: 氏名確認 -->
+<div id="step3" class="hidden">
+  <div id="confirmName"></div>
+  <button class="btn" onclick="confirmYes()">はい</button>
+  <button class="btn" onclick="confirmNo()">いいえ</button>
+</div>
+
+<!-- STEP4: 端末QR読み取り -->
+<div id="step4" class="hidden">
   <h2>端末のQRコードを読み込んでください</h2>
-  <div id="reader" style="width:100%; max-width:400px; margin:0 auto;"></div>
-  <div id="result"></div>
+  <div id="reader-device"></div>
+</div>
 
-  <script src="https://unpkg.com/html5-qrcode"></script>
-  <script>
-    function onScanSuccess(decodedText) {
-      document.getElementById('result').innerText = '読み取り成功: ' + decodedText;
-      html5QrcodeScanner.clear();
-      google.script.run
-        .withSuccessHandler(function(res) {
-          console.log(res);
-        })
-        .testRecord(decodedText);
+<!-- STEP5: 教員QR読み取り -->
+<div id="step5" class="hidden">
+  <h2>教員のQRコードを読み込んでください</h2>
+  <div id="reader-teacher"></div>
+</div>
+
+<!-- STEP6: 完了 -->
+<div id="step6" class="hidden">
+  <div id="status"></div>
+  <button class="btn" id="backBtn" onclick="resetFlow()">最初に戻る</button>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+let students = [];
+let teachers = [];
+let flow = { dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
+
+// ===== 初期化：名簿・教員リストを取得 =====
+async function loadRoster() {
+  const res = await fetch(GAS_URL + '?action=roster');
+  const data = await res.json();
+  students = data.students;
+  teachers = data.teachers;
+  renderDeptButtons();
+}
+loadRoster();
+
+// ===== STEP1: 学科ボタン =====
+function renderDeptButtons() {
+  const depts = [...new Set(students.map(s => s.dept))];
+  const container = document.getElementById('deptButtons');
+  container.innerHTML = '';
+  depts.forEach(dept => {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = dept;
+    btn.onclick = () => selectDept(dept);
+    container.appendChild(btn);
+  });
+}
+
+function selectDept(dept) {
+  flow.dept = dept;
+  const numbers = students.filter(s => s.dept === dept).sort((a, b) => a.number - b.number);
+  const container = document.getElementById('numberButtons');
+  container.innerHTML = '';
+  numbers.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = s.number;
+    btn.onclick = () => selectNumber(s);
+    container.appendChild(btn);
+  });
+  showStep(2);
+}
+
+// ===== STEP2 → STEP3: 出席番号選択 =====
+function selectNumber(student) {
+  flow.number = student.number;
+  flow.name = student.name;
+  document.getElementById('confirmName').textContent = student.name + ' さんでよろしいですか？';
+  showStep(3);
+}
+
+function confirmNo() {
+  showStep(2);
+}
+
+function confirmYes() {
+  showStep(4);
+  startDeviceScanner();
+}
+
+// ===== STEP4: 端末QR読み取り =====
+let deviceScanner;
+function startDeviceScanner() {
+  deviceScanner = new Html5QrcodeScanner("reader-device", { fps: 10, qrbox: 250 });
+  deviceScanner.render(onDeviceScanSuccess);
+}
+
+function onDeviceScanSuccess(decodedText) {
+  flow.deviceId = decodedText;
+  deviceScanner.clear();
+  showStep(5);
+  startTeacherScanner();
+}
+
+// ===== STEP5: 教員QR読み取り =====
+let teacherScanner;
+function startTeacherScanner() {
+  teacherScanner = new Html5QrcodeScanner("reader-teacher", { fps: 10, qrbox: 250 });
+  teacherScanner.render(onTeacherScanSuccess);
+}
+
+function onTeacherScanSuccess(decodedText) {
+  const teacher = teachers.find(t => t.id === decodedText);
+  teacherScanner.clear();
+  if (!teacher) {
+    showStatus('登録されていない教員QRです', false);
+    showStep(6);
+    return;
+  }
+  flow.teacherId = teacher.id;
+  flow.teacherName = teacher.name;
+  submitBorrow();
+}
+
+// ===== 送信 =====
+async function submitBorrow() {
+  showStep(6);
+  showStatus('送信中…', true);
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'borrow',
+        dept: flow.dept,
+        number: flow.number,
+        name: flow.name,
+        deviceId: flow.deviceId,
+        teacherName: flow.teacherName
+      }),
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      showStatus(flow.name + 'さん　端末番号:' + flow.deviceId + '　承認:' + flow.teacherName + ' 先生\n貸出記録が完了しました', true);
+    } else {
+      showStatus('エラー: ' + data.message, false);
     }
+  } catch (err) {
+    showStatus('通信エラーが発生しました: ' + err.message, false);
+  }
+}
 
-    function onScanFailure(error) {
-      // 読み取れていない間は何もしない（エラーが大量に出るのは正常）
-    }
+function showStatus(msg, isOk) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = isOk ? 'ok' : 'error';
+}
 
-    const html5QrcodeScanner = new Html5QrcodeScanner(
-      "reader",
-      { fps: 10, qrbox: 250 }
-    );
-    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-  </script>
+// ===== 画面切り替え・リセット =====
+function showStep(n) {
+  for (let i = 1; i <= 6; i++) {
+    document.getElementById('step' + i).classList.toggle('hidden', i !== n);
+  }
+}
+
+function resetFlow() {
+  flow = { dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
+  showStep(1);
+}
+</script>
 </body>
 </html>
