@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; }
+    #result { margin-top: 20px; font-size: 18px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>端末のQRコードを読み込んでください</h2>
+  <div id="reader" style="width:100%; max-width:400px; margin:0 auto;"></div>
+  <div id="result"></div>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script>
+    function onScanSuccess(decodedText) {
+      document.getElementById('result').innerText = '読み取り成功: ' + decodedText;
+      html5QrcodeScanner.clear();
+      google.script.run
+        .withSuccessHandler(function(res) {
+          console.log(res);
+        })
+        .testRecord(decodedText);
+    }
+
+    function onScanFailure(error) {
+      // 読み取れていない間は何もしない（エラーが大量に出るのは正常）
+    }
+
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader",
+      { fps: 10, qrbox: 250 }
+    );
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+  </script>
+</body>
+</html>
