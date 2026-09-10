@@ -59,6 +59,19 @@
   .badge-borrow { background: #e5f5ec; color: #1a6b3c; }
   .badge-return { background: #fbe9df; color: #a3400c; }
   #loadingMsg { color: #888; margin-top: 40px; }
+  #manualInputToggleArea { margin-top: 16px; }
+  #manualInputToggleArea a { color: #555; font-size: 14px; text-decoration: underline; }
+  #manualInputArea { margin-top: 20px; padding-top: 16px; border-top: 1px solid #ddd; }
+  #manualTeacherId {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 20px;
+    padding: 12px;
+    border: 2px solid #333;
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
 </style>
 </head>
 <body>
@@ -109,6 +122,17 @@
   <div id="modeBadge5"></div>
   <h2>教員のQRコードを読み込んでください</h2>
   <div id="reader-teacher"></div>
+
+  <div id="manualInputToggleArea">
+    <a href="#" id="manualInputLink" onclick="showManualInput(); return false;">QRが読み取れない場合はこちら（IDを直接入力）</a>
+  </div>
+
+  <div id="manualInputArea" class="hidden">
+    <h2>教員IDを入力してください</h2>
+    <input type="text" id="manualTeacherId" placeholder="例: T001" autocomplete="off">
+    <button class="btn" onclick="submitManualTeacherId()">確定する</button>
+    <div id="manualInputError" class="error" style="margin-top:8px; font-size:14px;"></div>
+  </div>
 </div>
 
 <!-- STEP6: 完了・エラー表示 -->
@@ -299,23 +323,58 @@ function startTeacherScanner() {
   if (teacherScanner) {
     try { teacherScanner.clear(); } catch (e) {}
   }
+  // 手入力欄を初期状態に戻す
+  document.getElementById('manualInputArea').classList.add('hidden');
+  document.getElementById('manualInputToggleArea').classList.remove('hidden');
+  document.getElementById('manualTeacherId').value = '';
+  document.getElementById('manualInputError').textContent = '';
+
   teacherScanner = new Html5QrcodeScanner("reader-teacher", { fps: 10, qrbox: 250 });
   teacherScanner.render(onTeacherScanSuccess, () => {});
 }
 
 function onTeacherScanSuccess(decodedText) {
-  const teacher = teachers.find(t => t.id === decodedText);
   teacherScanner.clear().catch(() => {});
+  handleTeacherId(decodedText);
+}
+
+// QRスキャンでも手入力でも、最終的にここで教員IDを照合する（処理を共通化）
+function handleTeacherId(rawId) {
+  const id = String(rawId).trim();
+  const teacher = teachers.find(t => t.id === id);
 
   if (!teacher) {
     showStep(6);
-    showStatus('登録されていない教員QRコードです。\nもう一度お試しいただくか、担当の先生にご確認ください。', false);
+    showStatus('登録されていない教員IDです（入力値: ' + id + '）。\nもう一度お試しいただくか、担当の先生にご確認ください。', false);
     return;
   }
 
   flow.teacherId = teacher.id;
   flow.teacherName = teacher.name;
   submitRecord();
+}
+
+// ===== 手入力フォールバック =====
+function showManualInput() {
+  document.getElementById('manualInputArea').classList.remove('hidden');
+  document.getElementById('manualInputToggleArea').classList.add('hidden');
+  if (teacherScanner) {
+    teacherScanner.clear().catch(() => {});
+  }
+  document.getElementById('manualTeacherId').focus();
+}
+
+function submitManualTeacherId() {
+  const input = document.getElementById('manualTeacherId');
+  const errorEl = document.getElementById('manualInputError');
+  const value = input.value.trim();
+
+  if (!value) {
+    errorEl.textContent = 'IDを入力してください';
+    return;
+  }
+  errorEl.textContent = '';
+  handleTeacherId(value);
 }
 
 // ============================================================
