@@ -5,66 +5,113 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>端末貸出システム</title>
 <style>
-  body { font-family: sans-serif; text-align: center; padding: 16px; max-width: 480px; margin: 0 auto; }
-  h2 { font-size: 20px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    text-align: center;
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+    color: #222;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 24px; }
   .btn {
-    display: block; width: 100%; margin: 8px 0; padding: 16px;
-    font-size: 18px; border: 2px solid #333; border-radius: 8px;
-    background: #fff; cursor: pointer;
+    display: block;
+    width: 100%;
+    margin: 8px 0;
+    padding: 16px;
+    font-size: 18px;
+    border: 2px solid #333;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    box-sizing: border-box;
   }
   .btn:active { background: #eee; }
-  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .btn.mode-borrow { border-color: #1a6b3c; color: #1a6b3c; }
+  .btn.mode-return { border-color: #a3400c; color: #a3400c; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
   .grid .btn { padding: 12px 0; font-size: 16px; margin: 0; }
-  #reader { width: 100%; margin: 0 auto; }
+  #reader-device, #reader-teacher { width: 100%; margin: 0 auto; }
   .hidden { display: none; }
   #confirmName { font-size: 22px; font-weight: bold; margin: 20px 0; }
-  #status { margin-top: 16px; font-size: 16px; font-weight: bold; }
-  .error { color: #c00; }
-  .ok { color: #080; }
-  #backBtn { margin-top: 20px; background: #eee; }
+  #status {
+    margin-top: 16px;
+    font-size: 17px;
+    font-weight: bold;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  .ok { color: #0a7a2f; }
+  .error { color: #c00000; }
+  #backBtn { margin-top: 24px; background: #eee; border-color: #999; }
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .badge-borrow { background: #e5f5ec; color: #1a6b3c; }
+  .badge-return { background: #fbe9df; color: #a3400c; }
+  #loadingMsg { color: #888; margin-top: 40px; }
 </style>
 </head>
 <body>
 
-<!-- GASのURL（本番用） -->
-<script>
-const GAS_URL = 'https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbw_6J2ojgmzwT1sv3JsEqb97cbpfssOOCLer-BWLOhuU9bj4OxluUsANTnL3wA27ysj/exec';
-</script>
-
 <h1>端末貸出システム</h1>
 
+<!-- 読み込み中表示 -->
+<div id="loadingMsg">読み込み中…</div>
+
+<!-- STEP0: 貸出 or 返却 -->
+<div id="step0" class="hidden">
+  <h2>貸出ですか？返却ですか？</h2>
+  <button class="btn mode-borrow" onclick="selectMode('borrow')">貸出する</button>
+  <button class="btn mode-return" onclick="selectMode('return')">返却する</button>
+</div>
+
 <!-- STEP1: 学科選択 -->
-<div id="step1">
+<div id="step1" class="hidden">
+  <div id="modeBadge1"></div>
   <h2>学科を選んでください</h2>
   <div id="deptButtons"></div>
 </div>
 
 <!-- STEP2: 出席番号選択 -->
 <div id="step2" class="hidden">
+  <div id="modeBadge2"></div>
   <h2>出席番号を選んでください</h2>
   <div id="numberButtons" class="grid"></div>
 </div>
 
 <!-- STEP3: 氏名確認 -->
 <div id="step3" class="hidden">
+  <div id="modeBadge3"></div>
   <div id="confirmName"></div>
   <button class="btn" onclick="confirmYes()">はい</button>
-  <button class="btn" onclick="confirmNo()">いいえ</button>
+  <button class="btn" onclick="confirmNo()">いいえ（番号を選び直す）</button>
 </div>
 
 <!-- STEP4: 端末QR読み取り -->
 <div id="step4" class="hidden">
+  <div id="modeBadge4"></div>
   <h2>端末のQRコードを読み込んでください</h2>
   <div id="reader-device"></div>
 </div>
 
 <!-- STEP5: 教員QR読み取り -->
 <div id="step5" class="hidden">
+  <div id="modeBadge5"></div>
   <h2>教員のQRコードを読み込んでください</h2>
   <div id="reader-teacher"></div>
 </div>
 
-<!-- STEP6: 完了 -->
+<!-- STEP6: 完了・エラー表示 -->
 <div id="step6" class="hidden">
   <div id="status"></div>
   <button class="btn" id="backBtn" onclick="resetFlow()">最初に戻る</button>
@@ -72,21 +119,111 @@ const GAS_URL = 'https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbw_6
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script>
+// ============================================================
+// 設定：GASのWebアプリURL（本番用）
+// ============================================================
+const GAS_URL = 'https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbw_6J2ojgmzwT1sv3JsEqb97cbpfssOOCLer-BWLOhuU9bj4OxluUsANTnL3wA27ysj/exec';
+
+// ============================================================
+// 状態管理
+// ============================================================
 let students = [];
 let teachers = [];
-let flow = { dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
+let flow = {
+  mode: null,       // 'borrow' or 'return'
+  dept: null,
+  number: null,
+  name: null,
+  deviceId: null,
+  teacherId: null,
+  teacherName: null
+};
+let deviceScanner = null;
+let teacherScanner = null;
 
-// ===== 初期化：名簿・教員リストを取得 =====
-async function loadRoster() {
-  const res = await fetch(GAS_URL + '?action=roster');
-  const data = await res.json();
-  students = data.students;
-  teachers = data.teachers;
-  renderDeptButtons();
+// ============================================================
+// JSONPヘルパー（CORS制約を回避するため、fetchではなくscriptタグ方式で通信する）
+// ============================================================
+function jsonpRequest(params) {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('タイムアウトしました（通信環境をご確認ください）'));
+    }, 15000);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    const query = new URLSearchParams(Object.assign({}, params, { callback: callbackName })).toString();
+    const script = document.createElement('script');
+    script.src = GAS_URL + '?' + query;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('サーバーへの接続に失敗しました'));
+    };
+    document.body.appendChild(script);
+  });
 }
-loadRoster();
 
-// ===== STEP1: 学科ボタン =====
+// ============================================================
+// 初期化：名簿・教員リストを取得
+// ============================================================
+async function init() {
+  try {
+    const data = await jsonpRequest({ action: 'roster' });
+    if (data.status !== 'ok') {
+      showInitError(data.message || '名簿の取得に失敗しました');
+      return;
+    }
+    students = data.students;
+    teachers = data.teachers;
+    document.getElementById('loadingMsg').classList.add('hidden');
+    showStep(0);
+  } catch (err) {
+    showInitError(err.message);
+  }
+}
+
+function showInitError(msg) {
+  const el = document.getElementById('loadingMsg');
+  el.textContent = '読み込みエラー: ' + msg;
+  el.style.color = '#c00000';
+}
+
+init();
+
+// ============================================================
+// STEP0: 貸出/返却モード選択
+// ============================================================
+function selectMode(mode) {
+  flow.mode = mode;
+  updateModeBadges();
+  renderDeptButtons();
+  showStep(1);
+}
+
+function updateModeBadges() {
+  const label = flow.mode === 'borrow' ? '貸出' : '返却';
+  const cls = flow.mode === 'borrow' ? 'badge-borrow' : 'badge-return';
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById('modeBadge' + i);
+    if (el) el.innerHTML = '<span class="badge ' + cls + '">' + label + '</span>';
+  }
+}
+
+// ============================================================
+// STEP1: 学科ボタン
+// ============================================================
 function renderDeptButtons() {
   const depts = [...new Set(students.map(s => s.dept))];
   const container = document.getElementById('deptButtons');
@@ -102,7 +239,10 @@ function renderDeptButtons() {
 
 function selectDept(dept) {
   flow.dept = dept;
-  const numbers = students.filter(s => s.dept === dept).sort((a, b) => a.number - b.number);
+  const numbers = students
+    .filter(s => s.dept === dept)
+    .sort((a, b) => a.number - b.number);
+
   const container = document.getElementById('numberButtons');
   container.innerHTML = '';
   numbers.forEach(s => {
@@ -115,7 +255,9 @@ function selectDept(dept) {
   showStep(2);
 }
 
-// ===== STEP2 → STEP3: 出席番号選択 =====
+// ============================================================
+// STEP2 → STEP3: 出席番号選択
+// ============================================================
 function selectNumber(student) {
   flow.number = student.number;
   flow.name = student.name;
@@ -132,65 +274,80 @@ function confirmYes() {
   startDeviceScanner();
 }
 
-// ===== STEP4: 端末QR読み取り =====
-let deviceScanner;
+// ============================================================
+// STEP4: 端末QR読み取り
+// ============================================================
 function startDeviceScanner() {
+  if (deviceScanner) {
+    try { deviceScanner.clear(); } catch (e) {}
+  }
   deviceScanner = new Html5QrcodeScanner("reader-device", { fps: 10, qrbox: 250 });
-  deviceScanner.render(onDeviceScanSuccess);
+  deviceScanner.render(onDeviceScanSuccess, () => {});
 }
 
 function onDeviceScanSuccess(decodedText) {
   flow.deviceId = decodedText;
-  deviceScanner.clear();
+  deviceScanner.clear().catch(() => {});
   showStep(5);
   startTeacherScanner();
 }
 
-// ===== STEP5: 教員QR読み取り =====
-let teacherScanner;
+// ============================================================
+// STEP5: 教員QR読み取り
+// ============================================================
 function startTeacherScanner() {
+  if (teacherScanner) {
+    try { teacherScanner.clear(); } catch (e) {}
+  }
   teacherScanner = new Html5QrcodeScanner("reader-teacher", { fps: 10, qrbox: 250 });
-  teacherScanner.render(onTeacherScanSuccess);
+  teacherScanner.render(onTeacherScanSuccess, () => {});
 }
 
 function onTeacherScanSuccess(decodedText) {
   const teacher = teachers.find(t => t.id === decodedText);
-  teacherScanner.clear();
+  teacherScanner.clear().catch(() => {});
+
   if (!teacher) {
-    showStatus('登録されていない教員QRです', false);
     showStep(6);
+    showStatus('登録されていない教員QRコードです。\nもう一度お試しいただくか、担当の先生にご確認ください。', false);
     return;
   }
+
   flow.teacherId = teacher.id;
   flow.teacherName = teacher.name;
-  submitBorrow();
+  submitRecord();
 }
 
-// ===== 送信 =====
-async function submitBorrow() {
+// ============================================================
+// STEP6: GASへ送信（貸出 or 返却）
+// ============================================================
+async function submitRecord() {
   showStep(6);
   showStatus('送信中…', true);
+
+  const params = {
+    action: flow.mode, // 'borrow' or 'return'
+    dept: flow.dept,
+    number: flow.number,
+    name: flow.name,
+    deviceId: flow.deviceId,
+    teacherName: flow.teacherName
+  };
+
   try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'borrow',
-        dept: flow.dept,
-        number: flow.number,
-        name: flow.name,
-        deviceId: flow.deviceId,
-        teacherName: flow.teacherName
-      }),
-      headers: { 'Content-Type': 'text/plain' }
-    });
-    const data = await res.json();
+    const data = await jsonpRequest(params);
     if (data.status === 'ok') {
-      showStatus(flow.name + 'さん　端末番号:' + flow.deviceId + '　承認:' + flow.teacherName + ' 先生\n貸出記録が完了しました', true);
+      const actionLabel = flow.mode === 'borrow' ? '貸出' : '返却';
+      showStatus(
+        flow.name + 'さん\n端末番号: ' + flow.deviceId + '\n承認: ' + flow.teacherName + ' 先生\n\n' +
+        actionLabel + '記録が完了しました。',
+        true
+      );
     } else {
       showStatus('エラー: ' + data.message, false);
     }
   } catch (err) {
-    showStatus('通信エラーが発生しました: ' + err.message, false);
+    showStatus('通信エラーが発生しました。\n' + err.message + '\nもう一度お試しください。', false);
   }
 }
 
@@ -200,16 +357,19 @@ function showStatus(msg, isOk) {
   el.className = isOk ? 'ok' : 'error';
 }
 
-// ===== 画面切り替え・リセット =====
+// ============================================================
+// 画面切り替え・リセット
+// ============================================================
 function showStep(n) {
-  for (let i = 1; i <= 6; i++) {
-    document.getElementById('step' + i).classList.toggle('hidden', i !== n);
+  for (let i = 0; i <= 6; i++) {
+    const el = document.getElementById('step' + i);
+    if (el) el.classList.toggle('hidden', i !== n);
   }
 }
 
 function resetFlow() {
-  flow = { dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
-  showStep(1);
+  flow = { mode: null, dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
+  showStep(0);
 }
 </script>
 </body>
