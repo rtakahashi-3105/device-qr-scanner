@@ -59,6 +59,22 @@
   .badge-borrow { background: #e5f5ec; color: #1a6b3c; }
   .badge-return { background: #fbe9df; color: #a3400c; }
   #loadingMsg { color: #888; margin-top: 40px; }
+  #cancelLink {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: #fff;
+    border: 1px solid #999;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #666;
+    cursor: pointer;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  #cancelLink:active { background: #eee; }
+  body { padding-top: 44px; }
   #manualInputToggleArea { margin-top: 16px; }
   #manualInputToggleArea a { color: #555; font-size: 14px; text-decoration: underline; }
   #manualInputArea { margin-top: 20px; padding-top: 16px; border-top: 1px solid #ddd; }
@@ -75,6 +91,8 @@
 </style>
 </head>
 <body>
+
+<div id="cancelLink" class="hidden" onclick="cancelToTop()">✕ 中止してトップに戻る</div>
 
 <h1>端末貸出システム</h1>
 
@@ -212,6 +230,7 @@ async function init() {
     students = data.students;
     teachers = data.teachers;
     document.getElementById('loadingMsg').classList.add('hidden');
+    document.getElementById('cancelLink').classList.remove('hidden');
     showStep(0);
   } catch (err) {
     showInitError(err.message);
@@ -440,6 +459,17 @@ function showStep(n) {
 function resetFlow() {
   flow = { mode: null, dept: null, number: null, name: null, deviceId: null, teacherId: null, teacherName: null };
   showStep(0);
+}
+
+// 「中止してトップに戻る」：起動中のカメラを止めてから最初の画面に戻す
+function cancelToTop() {
+  if (deviceScanner) {
+    try { deviceScanner.clear(); } catch (e) {}
+  }
+  if (teacherScanner) {
+    try { teacherScanner.clear(); } catch (e) {}
+  }
+  resetFlow();
 }
 </script>
 </body>
