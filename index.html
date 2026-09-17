@@ -232,8 +232,15 @@ init();
 function selectMode(mode) {
   flow.mode = mode;
   updateModeBadges();
-  renderDeptButtons();
-  showStep(1);
+
+  if (mode === 'return') {
+    // 返却は端末QR＋教員確認だけでOK。生徒情報の選択はスキップする
+    showStep(4);
+    startDeviceScanner();
+  } else {
+    renderDeptButtons();
+    showStep(1);
+  }
 }
 
 function updateModeBadges() {
@@ -384,24 +391,28 @@ async function submitRecord() {
   showStep(6);
   showStatus('送信中…', true);
 
-  const params = {
-    action: flow.mode, // 'borrow' or 'return'
-    dept: flow.dept,
-    number: flow.number,
-    name: flow.name,
-    deviceId: flow.deviceId,
-    teacherName: flow.teacherName
-  };
+  const params = flow.mode === 'borrow'
+    ? {
+        action: 'borrow',
+        dept: flow.dept,
+        number: flow.number,
+        name: flow.name,
+        deviceId: flow.deviceId,
+        teacherName: flow.teacherName
+      }
+    : {
+        action: 'return',
+        deviceId: flow.deviceId,
+        teacherName: flow.teacherName
+      };
 
   try {
     const data = await jsonpRequest(params);
     if (data.status === 'ok') {
-      const actionLabel = flow.mode === 'borrow' ? '貸出' : '返却';
-      showStatus(
-        flow.name + 'さん\n端末番号: ' + flow.deviceId + '\n承認: ' + flow.teacherName + ' 先生\n\n' +
-        actionLabel + '記録が完了しました。',
-        true
-      );
+      const msg = flow.mode === 'borrow'
+        ? (flow.name + 'さん\n端末番号: ' + flow.deviceId + '\n承認: ' + flow.teacherName + ' 先生\n\n貸出記録が完了しました。')
+        : ('端末番号: ' + flow.deviceId + '\n承認: ' + flow.teacherName + ' 先生\n\n返却記録が完了しました。');
+      showStatus(msg, true);
     } else {
       showStatus('エラー: ' + data.message, false);
     }
